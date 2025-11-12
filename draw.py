@@ -115,8 +115,7 @@ def main(baseline: str = "flashmaskv1"):
     # for dtype in ['bf16', 'fp16']:
     for kernel in ["fwd", "bwd", "total"]:
         for dtype in ['bf16']:
-            # for headdim in [128, 64]:
-            for headdim in [128]:
+            for headdim in [64, 128, 256]:
                 categories = {}
                 for seqlen in [8192, 32768, 131072]:
                     method_to_df = {}

@@ -144,7 +144,7 @@ def main(methods: list = ["flashmaskv1", "flashmaskv3"]):
     root_dir = '.'
     for kernel in ["fwd", "bwd", "total"]:
         for dtype in ['bf16']:
-            for headdim in [128, 64]:
+            for headdim in [64, 128, 256]:
                 categories = {}
                 for seqlen in [8192, 32768, 131072]:
                     method_to_df = {}

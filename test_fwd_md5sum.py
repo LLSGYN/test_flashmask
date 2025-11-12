@@ -82,8 +82,8 @@ def run_flashmask_forward(batch_size, seqlen_q, seqlen_k, nheads, nheads_kv, d, 
         batch_size, seqlen_q, seqlen_k, nheads_startend_row_indices
     )
 
-    if startend_row_indices is None and causal and d == 80:
-        pytest.skip(f"Skipping because running headdim 80 with flash_attn in causal mask")
+    if startend_row_indices is None and causal and d in (80, 192):
+        pytest.skip(f"Skipping because running headdim {d} with flash_attn in causal mask")
 
     if fa_version == 2:
         paddle.set_flags({'FLAGS_flash_attn_version': 2})
@@ -125,7 +125,7 @@ def generate_all_param_combinations():
     
     dtypes = [paddle.bfloat16]
     fa_versions = [3]
-    d_dv_combinations = [(128, 128), (80, 80), (64, 64)]
+    d_dv_combinations = [(64, 64), (80, 80), (128, 128), (192, 192), (256, 256)]
     
     for batch_size, seqlen_q, seqlen_k, nheads, nheads_kv, nheads_startend_row_indices in generate_shapes():
         for dtype in dtypes:
@@ -192,7 +192,14 @@ except FileNotFoundError:
 
 @pytest.mark.parametrize("dtype", [paddle.bfloat16])
 @pytest.mark.parametrize("fa_version", [3])
-@pytest.mark.parametrize("d, dv", [(128, 128), (80, 80), (64, 64)])
+@pytest.mark.parametrize("d, dv",
+    [
+        (64, 64),
+        (80, 80),
+        (128, 128),
+        (192, 192),
+        (256, 256),
+    ])
 @pytest.mark.parametrize(
     "batch_size, seqlen_q, seqlen_k, nheads, nheads_kv, nheads_startend_row_indices",
     list(generate_shapes())

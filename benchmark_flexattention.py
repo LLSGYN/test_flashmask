@@ -436,7 +436,7 @@ def main(examples: List[str] = ["all"], dtype='bf16'):
                 doc_seq_lens_list.append((total_length, doc_list, qksparse_mask))
             
         #doc_seq_lens_list = doc_seq_lens_list[::-1]
-        for D in [128, 64]:
+        for D in [64, 128, 256]:
             H = 4096 // D
             for idx, (S, prefix_doc_seq_lens, qksparse_mask) in enumerate(doc_seq_lens_list):
                 B = 128 * 1024 // S
