@@ -1,0 +1,6 @@
+*.csv
+*.pd
+*.png
+*.pdf
+*.ncu-rep
+__pycache__/*

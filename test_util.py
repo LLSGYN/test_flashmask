@@ -114,6 +114,9 @@ def attention_ref(
 
     k = repeat(k, "b h s d -> b (h g) s d", g=q.shape[1] // k.shape[1])
     v = repeat(v, "b h s d -> b (h g) s d", g=q.shape[1] // v.shape[1])
+    if attn_bias is not None:
+        attn_bias = repeat(attn_bias, "b h s d -> b (h g) s d ", g=q.shape[1] // attn_bias.shape[1])
+
     d = q.shape[-1]
     dv = v.shape[-1]
     softmax_scale = 1.0 / math.sqrt(d if qv is None else d + dv)
@@ -162,7 +165,8 @@ def attention_ref(
     if local_mask is not None:
         scores.masked_fill_(local_mask, float("-inf"))
     if attn_bias is not None:
-        scores = scores + attn_bias
+        scores = scores + attn_bias.cast(paddle.float32)
+        # print("scores:", scores[0,0,0,:])
         # when all values in a line of attn_bias are -inf, setting value in this line to a very small value
         # to prevend softmax giving nan output
         all_inf_mask = (attn_bias == -np.inf).all(axis=-1, keepdim=True)
@@ -204,3 +208,70 @@ def attention_ref(
     if query_padding_mask is not None:
         output.masked_fill_(rearrange(~query_padding_mask, "b s -> b s 1 1"), 0.0)
     return output.cast(dtype=dtype_og), attention.cast(dtype=dtype_og)
+
+
+#blockmask utils
+def random_blockmask(shape, dtype='int32',is_causal=False, ref_q = None):
+    # 随机生成 0/1 mask
+    mask = paddle.randint(0, 2, shape, dtype=paddle.int32)
+    B, S, Q, K = shape
+    return mask
+
+def flashmask_to_densemask(startend_row_indices, seqlen_q, nheads, causal=True):
+    if startend_row_indices is None:
+        return None
+    bz, num_head, seqlen_k, bound_num = startend_row_indices.shape
+    assert nheads % num_head == 0
+    m = paddle.ones((bz, num_head, seqlen_q, seqlen_k), dtype=paddle.int32)
+    has_end = (causal and bound_num == 2) or ((not causal) and bound_num == 4)
+    for bi in range(bz):
+        for hi in range(num_head):
+            for j in range(seqlen_k):
+                downstart = startend_row_indices[bi, hi, j, 0]
+                if has_end:
+                    downend = startend_row_indices[bi, hi, j, 1]
+                    m[bi, hi, downstart:downend, j] = 0
+                else:
+                    m[bi, hi, downstart:, j] = 0
+                if causal:
+                    # from flash-attention 2.1 and in flash-attention 3, If seqlen_q != seqlen_k and causal=True,
+                    # the causal mask is aligned to the bottom right corner of the attention matrix,
+                    # instead of the top-left corner.
+                    # See: https://github.com/Dao-AILab/flash-attention?tab=readme-ov-file#21-change-behavior-of-causal-flag
+                    m[bi, hi, :max(0, j - (seqlen_k - seqlen_q)), j] = 0
+                else:
+                    if has_end:
+                        upstart = startend_row_indices[bi, hi, j, 2]
+                        upend = startend_row_indices[bi, hi, j, 3]
+                        m[bi, hi, upstart:upend, j] = 0
+                    else:
+                        upend = startend_row_indices[bi, hi, j, 1]
+                        m[bi, hi, :upend, j] = 0
+    m = paddle.repeat_interleave(x=m, repeats=nheads // num_head, axis=1)
+    m = m.astype(paddle.bool)
+    return m
+
+def blockmask_to_densemask(blockmask, q_len, k_len, dtype, causal=True):
+    """
+    Args:
+        blockmask: [b, s, q_blocks, k_blocks]  (0/1 mask, 1表示masked, 0表示可见)
+        q_len: int, query序列长度
+        k_len: int, key序列长度
+        dtype: paddle.float32等
+        causal: bool, 是否加自回归遮挡
+
+    Returns:
+        densemask: [b, s, q_len, k_len]，可直接用于attention
+    """
+    if blockmask is None:
+        return None
+    bz, num_head, q_blocks, k_blocks = blockmask.shape
+    block_q = 128
+    block_k = 128
+
+    # 1. 展开到[bs, s, q_len, k_len]
+    densemask = blockmask.astype(dtype).repeat_interleave(block_q, axis=2).repeat_interleave(block_k, axis=3)
+    densemask = densemask[:, :, :q_len, :k_len]
+    # print(densemask)
+
+    return densemask.astype(paddle.bool)
